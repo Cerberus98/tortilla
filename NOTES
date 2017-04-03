@@ -1,0 +1,76 @@
+# This is nice for magic reasons but you can't readily extend existing namespaces from different
+# different modules. Also what happens if you sub-class a config? Is that extending or is it a
+# sub-namespace of the existing config? Also the class itself is kind of useless and shouldn't
+# be instantiated
+#
+# Does it even make sense to allow sub-module config overrides? The point is to provide a
+# complete global map of the config. If a plugin is overriding the config of a parent
+# you're probably doing it wrong to begin with, but also it should probably be explicit.
+# Following composition over inheritance, you're looking for a Duck. The app has no opinions
+# on the type of dock as long as it quacks.
+#
+# Alright, so how do you generate a config map for stuff that's loaded dynamically at run time?
+# You just have to fail at load time, whenever that is. It's the same as the plugin itself, if
+# the code has a syntax error you won't know until you load the plugin. The plugins themselves
+# can define explicit overrides or use their own sub-namespace of variables and pass them to
+# a parent class they're trying to patch
+
+class AppConfig(config.Config):
+    port = config.IntValue(min=0, max=65536, default=5000)
+    bindhost = config.StrValue(required=True, default="0.0.0.0")
+
+# Assume the above lives in tortilla.app what does a lookup look like?
+# tortilla.app.port ?
+# tortilla.app.app_config.port ?
+
+# So what happens here?
+class AnotherConfig(AppConfig):
+    # What's the name
+    debug = config.BoolValue(default=False)
+
+    # And is this allowed? How is this resolved? The parent should be loaded
+    # first but do we want to let this happen or do we want to raise?
+    port = config.IntValue(default=6000)
+
+# You could inspect here and inherit namespaces by looking at module
+# paths, assuming that the modules themselves are the config namespaces anyway
+
+# This model makes it trickier to define multiple sub-namespaces in a module. We shouldn't
+# force someone using tortilla to code one way or another. They could define no classes,
+# one class, or multiple classes per module and we need to work the same regardless
+
+class Foo:
+    vars = [ ... ]
+    conf.Config.register(vars, ...)
+
+
+class Bar: pass
+
+class BarConfig:
+    # Is this "a.b.bar" or just "bar" ?
+    NAMESPACE = "bar"
+    a = config.IntValue
+    b = config.BoolValue
+
+
+class Baz: pass
+
+vars = [ ... ]
+# Again, "a.b.baz" or just "baz" ?
+conf.Config.register(vars, "baz")
+
+
+... OR ...
+
+vars = [
+  config.IntValue("port", ...),
+  config.StrValue("bindhost"), ...),
+]
+
+# This is pretty clunky. You have to define all your names explicitly. You also
+# have to know what module you're in and express explicitly what you want your
+# config to look like.
+
+config.Config.register(vars, namespace=__name__, section="app")
+
+# You can't just inherit namespaces. Could work around it with other helpers maybe

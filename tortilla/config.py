@@ -24,10 +24,104 @@ from tortilla import exception
 #     variables and spit it out so it's easy to maintain
 #   * Ideally this is just an entry point you can define with the project
 #     by importing Tortilla
-# Define validations for variables
-# Required variables
-# Optional variables
-# Override variables without losing the original config in process
+# * Define validations for variables
+# * Required variables
+# * Optional variables
+# * Override variables without losing the original config in process
+# * inspect/store modules and lines for imports so if you hit a conflict
+#   between two modulesit's easy to resolve
+# * Be able to specify overrides in a way that doesn't involve arcane trickery
+#   * I don't know what this looks like. You can't guarantee the loading order
+#     of modules exactly.
+# * Somehow solve the load order problem. This file won't be loaded until
+#   something imports it to use it. If the primary application doesn't
+#   need config then there's no much we can do about it just being a module
+#   * Could be an explicit hook if the user wants best-effort loading. Something
+#     explicit in an entrypoint?
+#   * Ideally we could find a way so it's always loaded no matter what. If you
+#     write it into the function that starts the webserver, then a separate
+#     hook that wants to open a shell with app things sourced and imported
+#     also needs those values loaded apriori
+# * Could always define different modes. Strict requires you to define everything
+#   whereas lazy works like the original implementation and just sucks things in
+#   from the env vars when they're found
+
+class Var(object):
+    def __init__(self, name, value, required=False, default=False):
+        if required and default:
+            raise exception.ConfigNecessityConflict(key=name)
+
+        self._name
+        self._required = required
+        self._default = default
+        self._value = None
+        self._override_value = None
+        self._override_defined = False
+        self._defined = False
+
+    @property
+    def required(self):
+        return self._required
+
+    @property
+    def default(self):
+        return self._default
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def value(self):
+        if not self._defined:
+            raise exception.ConfigUndefined(key=self._name)
+        if self._override_defined:
+            return self._override_value
+        return self._value
+
+    def set_value(self, value):
+        if self._value:
+            raise exception.ConfigAlreadyDefined(key=self._name,
+                                                 value=self._value)
+        self._defined = True
+        self._value = value
+
+    def set_override(self, value):
+        if self._override_defined:
+            raise exception.ConfigAlreadyOverridden(key=self._name,
+                                                    value=self._override_value,
+                                                    original=self._value)
+        self._override_value = value
+        self._override_defined = True
+
+    def clear_override(self):
+        if not self._override_defined:
+            raise exception.ConfigNotOverridden(key=self._name)
+        self._override_defined = False
+        self._override_value = None
+
+
+class Namespace(object):
+    """
+    Represents a mapping of dotted namespace to variable names. Exists
+    as as top level structure stored by the Config map instead of
+    hierarchically nested. All namespaces will be best-effort pre-populated
+    at program load time, with an exception for any components loaded
+    dynamically by the host application."""
+
+    def __init__(self, name):
+        self._name = name
+        self._variables = {}
+
+    @property
+    def name(self):
+        return self._name
+
+    def get(self, key):
+        if key not in self._varables:
+            raise exception.ConfigUndeclared(key=key, namespace=self._name)
+        return self._variables[key].value
+
 
 class Config(object):
     # TODO There should be no defaults here. They should be definable by the
