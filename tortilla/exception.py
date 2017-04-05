@@ -39,3 +39,7 @@ class ConfigAlreadyOverridden(TortillaException):
 
 class ConfigNotOverridden(TortillaException):
     message = ("The declared variable '%(key)s' has not been overridden")
+
+
+class ConfigTypeError(TortillaException):
+    message = ("Value '%(value)s' is not of type %(expected_type)s")

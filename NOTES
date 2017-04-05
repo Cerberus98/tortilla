@@ -74,3 +74,19 @@ vars = [
 config.Config.register(vars, namespace=__name__, section="app")
 
 # You can't just inherit namespaces. Could work around it with other helpers maybe
+
+
+# So to make to this work, projects define entry points. By default, the name
+# is tortilla.config but that can be overridden. Those entry points point to
+# callables which can load anything but we can enforce that they return something to
+# the tortilla registry loader
+entry_points = {
+    "tortilla.config": [
+      "my_app = my.app.module:conf_loader",
+      "my_other_app = my.app.other:conf_loader"
+      ]
+}
+
+# So application load, load the configurator, which will grab the defined entry point.
+# Ideally, said entry point loads all the other files that have configs we would like
+# at load time. Then the application is kicked off.

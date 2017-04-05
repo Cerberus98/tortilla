@@ -1,4 +1,5 @@
 import os
+import pkg_resources
 
 from tortilla import exception
 
@@ -101,6 +102,30 @@ class Var(object):
         self._override_value = None
 
 
+class IntVar(Var):
+    def set_value(self, value):
+        try:
+            super().set_value(int(value))
+        except TypeError:
+            raise exception.ConfigTypeError(value=value, expected_type="Int")
+
+
+class StrVar(Var):
+    def set_value(self, value):
+        try:
+            super().set_value(str(value))
+        except TypeError:
+            raise exception.ConfigTypeError(value=value, expected_type="String")
+
+
+class BoolVar(Var):
+    def set_value(self, value):
+        try:
+            super().set_value(bool(value))
+        except TypeError:
+            raise exception.ConfigTypeError(value=value, expected_type="Boolean")
+
+
 class Namespace(object):
     """
     Represents a mapping of dotted namespace to variable names. Exists
@@ -126,8 +151,9 @@ class Namespace(object):
 class Config(object):
     # TODO There should be no defaults here. They should be definable by the
     #      modules that actually want them
+    # TODO This should be a Singleton
 
-    def __init__(self):
+    def __init__(self, namespace="tortilla.config"):
         # TODO
         # * Walk os.environ and set well known key spaces
         # * Be able to have namespaced keys we can fetch
@@ -140,13 +166,25 @@ class Config(object):
         #   could be stand-ins for dotted namespacing
         # * Lastly, certain keyspaces should probably be removed
         #   from the name: APP_PORT=5000 -> app.port=5000
-        self._cfg = {}
-        for key, default in self.DEFAULTS.items():
-            if key in os.environ:
-                default = os.environ[key]
-            if key in self._cfg:
-                raise exception.ConfigConflict(key=key, value=self._cfg[key])
-            self._cfg.setdefault(key, default)
+        self._entrypoint_namespace = namespace
+        self.load_config_map()
+        self.discover_vars()
+
+    def load_config_map(self):
+        # What should we have returned to us here?
+        # Other tools expect lists of the actual variable class instances
+        for ep in pkg_resources.iter_entry_points(self._entrypoint_namespace):
+            ep.load()
+
+    def discover_vars(self):
+        pass
+        #self._cfg = {}
+        #for key, default in self.DEFAULTS.items():
+        #    if key in os.environ:
+        #        default = os.environ[key]
+        #    if key in self._cfg:
+        #        raise exception.ConfigConflict(key=key, value=self._cfg[key])
+        #    self._cfg.setdefault(key, default)
 
     def get(self, key, default=None):
         if key not in self._cfg:
