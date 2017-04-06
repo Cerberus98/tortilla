@@ -86,6 +86,9 @@ entry_points = {
       "my_other_app = my.app.other:conf_loader"
       ]
 }
+# Why define an entry point? so then you can generate config files ahead of time 
+# and even vet a configuration/environment against the config vars registered by the
+# app
 
 # So application load, load the configurator, which will grab the defined entry point.
 # Ideally, said entry point loads all the other files that have configs we would like

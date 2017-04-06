@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
-import sys
 import distutils.core
+
+import pip.download
+from pip.req import parse_requirements
 
 try:
     import setuptools
@@ -9,6 +11,11 @@ except ImportError:
     pass
 
 version = "0.01"
+
+
+def requires(path):
+    return [r.name for r in parse_requirements(path, session=pip.download.PipSession())
+            if r]
 
 
 distutils.core.setup(
@@ -27,5 +34,5 @@ distutils.core.setup(
         ],
         "console_scripts": [
             "foo = bar"
-        ]}
-    )
+        ]},
+    install_requires=requires("requirements.txt"))

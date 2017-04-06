@@ -1,3 +1,4 @@
+import itertools
 import os
 import pkg_resources
 
@@ -48,11 +49,11 @@ from tortilla import exception
 #   from the env vars when they're found
 
 class Var(object):
-    def __init__(self, name, value, required=False, default=False):
+    def __init__(self, name, required=False, default=False):
         if required and default:
             raise exception.ConfigNecessityConflict(key=name)
 
-        self._name
+        self._name = name
         self._required = required
         self._default = default
         self._value = None
@@ -134,6 +135,7 @@ class Namespace(object):
     at program load time, with an exception for any components loaded
     dynamically by the host application."""
 
+    # TODO Probably override __slots__ here so it's smaller
     def __init__(self, name):
         self._name = name
         self._variables = {}
@@ -142,10 +144,37 @@ class Namespace(object):
     def name(self):
         return self._name
 
-    def get(self, key):
-        if key not in self._varables:
-            raise exception.ConfigUndeclared(key=key, namespace=self._name)
-        return self._variables[key].value
+    def get(self, key, context):
+        if key not in self._variables:
+            env_name = '_'.join(itertools.chain([c.name for c in context], [key])).upper()
+            # TODO This is just a POC! This is not the way to do this
+            if env_name in os.environ:
+                v = Var(key)
+                v.set_value(os.environ[env_name])
+                self._variables[key] = v
+            else:
+                self._variables[key] = Namespace(key)
+        return self._variables[key]
+
+    def __str__(self):
+        return self._name
+
+
+# TODO this is a placeholder allows us to hide the fact that a.b.c shouldn't
+#      really work
+class NamespaceContext(object):
+    def __init__(self):
+        self._context = []
+
+    def __getattr__(self, key):
+        namespace = self._context[-1].get(key, self._context)
+        self.add_context(namespace)
+        if isinstance(namespace, Var):
+            return namespace.value
+        return self
+
+    def add_context(self, context):
+        self._context.append(context)
 
 
 class Config(object):
@@ -167,8 +196,9 @@ class Config(object):
         # * Lastly, certain keyspaces should probably be removed
         #   from the name: APP_PORT=5000 -> app.port=5000
         self._entrypoint_namespace = namespace
-        self.load_config_map()
-        self.discover_vars()
+        self._cfg = {}
+        # self.load_config_map()
+        # self.discover_vars()
 
     def load_config_map(self):
         # What should we have returned to us here?
@@ -200,7 +230,17 @@ class Config(object):
                 #      if we have a bad config we should fail early. What's
                 #      that mean? We should also do validation
                 self._cfg[key] = os.environ[env_key]
-        return self._cfg[key]
+        n_ctx = NamespaceContext()
+        n_ctx.add_context(self._cfg[key])
+        return n_ctx
+
+    def __getattr__(self, key):
+        if not self._cfg.get(key):
+            self._cfg[key] = Namespace(key)
+
+        n_ctx = NamespaceContext()
+        n_ctx.add_context(self._cfg[key])
+        return n_ctx
 
 
 CONF = Config()
