@@ -1,6 +1,7 @@
 import itertools
 import os
 import pkg_resources
+import sys
 
 from tortilla import exception
 
@@ -49,13 +50,15 @@ from tortilla import exception
 #   from the env vars when they're found
 
 class Var(object):
-    def __init__(self, name, required=False, default=False):
+    def __init__(self, name, help=None, required=False, default=False):
         if required and default:
             raise exception.ConfigNecessityConflict(key=name)
 
         self._name = name
+        self._namespace = None
         self._required = required
         self._default = default
+        self._help = help
         self._value = None
         self._override_value = None
         self._override_defined = False
@@ -72,6 +75,21 @@ class Var(object):
     @property
     def name(self):
         return self._name
+
+    @property
+    def help(self):
+        # LOLselfhelp. I should write a book.
+        return self._help
+
+    @property
+    def namespace(self):
+        return self._namespace
+
+    # TODO This is janky. We shouldn't be able to touch the namespace
+    #      once it's been set
+    @namespace.setter
+    def namespace(self, value):
+        self._namespace = value
 
     @property
     def value(self):
@@ -136,29 +154,46 @@ class Namespace(object):
     dynamically by the host application."""
 
     # TODO Probably override __slots__ here so it's smaller
-    def __init__(self, name):
+    def __init__(self, name, prefix):
         self._name = name
+        self._prefix = prefix
+        if self._prefix:
+            self._fqn = "{}.{}".format(self._prefix, self._name)
+        else:
+            self._fqn = self._name
         self._variables = {}
 
     @property
     def name(self):
         return self._name
 
+    @property
+    def full_namespace(self):
+        return self._fqn
+
+    def set_entry(self, name, value):
+        self._variables[name] = value
+
     def get(self, key, context):
         if key not in self._variables:
             env_name = '_'.join(itertools.chain([c.name for c in context], [key])).upper()
             # TODO This is just a POC! This is not the way to do this
             if env_name in os.environ:
-                v = Var(key)
+                v = Var(key, self)
                 v.set_value(os.environ[env_name])
-                self._variables[key] = v
+                self.set_entry(key, v)
             else:
-                self._variables[key] = Namespace(key)
+                self.set_entry(key, Namespace(key, prefix=self.full_namespace))
         return self._variables[key]
 
     def __str__(self):
         return self._name
 
+    def __contains__(self, key):
+        return key in self._variables
+
+    def __getitem__(self, key):
+        return self._variables[key]
 
 # TODO this is a placeholder allows us to hide the fact that a.b.c shouldn't
 #      really work
@@ -177,12 +212,19 @@ class NamespaceContext(object):
         self._context.append(context)
 
 
-class Config(object):
+class _ConfigBorg(object):
+    _shared_state = {}
+
+    def __init__(self):
+        self.__dict__ = self._shared_state
+
+class Config(_ConfigBorg):
     # TODO There should be no defaults here. They should be definable by the
     #      modules that actually want them
     # TODO This should be a Singleton
 
-    def __init__(self, namespace="tortilla.config"):
+    def __init__(self, namespace="tortilla"):
+        _ConfigBorg.__init__(self)
         # TODO
         # * Walk os.environ and set well known key spaces
         # * Be able to have namespaced keys we can fetch
@@ -195,8 +237,10 @@ class Config(object):
         #   could be stand-ins for dotted namespacing
         # * Lastly, certain keyspaces should probably be removed
         #   from the name: APP_PORT=5000 -> app.port=5000
-        self._entrypoint_namespace = namespace
-        self._cfg = {}
+        if "_entrypoint_namespace" not in self.__dict__:
+            self._entrypoint_namespace = namespace
+        if "_cfg" not in self.__dict__:
+            self._cfg = Namespace(namespace, prefix=None)
         # self.load_config_map()
         # self.discover_vars()
 
@@ -235,12 +279,26 @@ class Config(object):
         return n_ctx
 
     def __getattr__(self, key):
-        if not self._cfg.get(key):
-            self._cfg[key] = Namespace(key)
+        if key not in self._cfg:
+            self._cfg.set_entry(key, Namespace(key, prefix=None))
 
         n_ctx = NamespaceContext()
         n_ctx.add_context(self._cfg[key])
         return n_ctx
+
+    def register_vars(self, variables, namespace):
+        namespace_parts = namespace.split('.')
+        current_namespace = self._cfg
+        for part in namespace_parts:
+            if part not in current_namespace:
+                current_namespace.set_entry(
+                    part, Namespace(part,
+                    prefix=current_namespace.full_namespace))
+            current_namespace = current_namespace[part]
+
+        for v in variables:
+            v.namepsace = current_namespace
+            current_namespace.set_entry(v.name, v)
 
 
 CONF = Config()
